@@ -179,7 +179,7 @@ func (hook *MailAuthHook) Fire(entry *logrus.Entry) error {
 			return err
 		}
 
-		c.Quit()
+		return c.Quit()
 	}
 
 	return nil
