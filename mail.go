@@ -2,8 +2,10 @@ package logrus_mail
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -116,18 +118,70 @@ func (hook *MailAuthHook) Fire(entry *logrus.Entry) error {
 
 	message := createMessage(entry, hook.AppName)
 
-	// Connect to the server, authenticate, set the sender and recipient,
-	// and send the email all in one step.
-	err := smtp.SendMail(
-		hook.Host+":"+strconv.Itoa(hook.Port),
-		auth,
-		hook.From.Address,
-		[]string{hook.To.Address},
-		message.Bytes(),
-	)
-	if err != nil {
-		return err
+	if hook.Port != 465 {
+
+		// Connect to the server, authenticate, set the sender and recipient,
+		// and send the email all in one step.
+		err := smtp.SendMail(
+			hook.Host+":"+strconv.Itoa(hook.Port),
+			auth,
+			hook.From.Address,
+			[]string{hook.To.Address},
+			message.Bytes(),
+		)
+		if err != nil {
+			return err
+		}
+	} else {
+		// TSL
+		tlsconfig := &tls.Config{
+			InsecureSkipVerify: true,
+			ServerName:         hook.Host,
+		}
+
+		conn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", hook.Host, hook.Port), tlsconfig)
+		if err != nil {
+			log.Panic(err)
+		}
+
+		c, err := smtp.NewClient(conn, hook.Host)
+		if err != nil {
+			return err
+		}
+
+		// Auth
+		if err = c.Auth(auth); err != nil {
+			return err
+		}
+
+		// To && From
+		if err = c.Mail(hook.From.Address); err != nil {
+			return err
+		}
+
+		if err = c.Rcpt(hook.To.Address); err != nil {
+			return err
+		}
+
+		// Data
+		w, err := c.Data()
+		if err != nil {
+			return err
+		}
+
+		_, err = w.Write(message.Bytes())
+		if err != nil {
+			return err
+		}
+
+		err = w.Close()
+		if err != nil {
+			return err
+		}
+
+		c.Quit()
 	}
+
 	return nil
 }
 
